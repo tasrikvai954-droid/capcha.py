@@ -52,7 +52,7 @@ def keep_alive():
 # --- CONFIGURATION & SECURITY ---
 # ============================================
 
-MY_DIRECT_BOT_TOKEN = "9059189356:AAFj_I5TaWTFuffu6FouFCpg1Svcmooh6mo" 
+MY_DIRECT_BOT_TOKEN = "9059189356:AAEo7Z7FghIuxEyowWlgZLMxleYCpM7UPIg" 
 
 BOT_TOKEN = os.getenv("BOT_TOKEN") or MY_DIRECT_BOT_TOKEN
 ADMIN_ID_RAW = os.getenv("ADMIN_ID", "7833766898")
@@ -77,8 +77,11 @@ db_lock = threading.RLock()
 # ============================================
 def make_inline_button(text, callback_data=None, url=None, style=None):
     """
-    Centralized InlineKeyboardButton Builder with strict color emulation.
+    নিখুঁত কালার এমুলেশন হেল্পার: success-এ সবুজ (🟢), danger-এ লাল (🔴), primary-এ নীল (🔵) ইমোজি যুক্ত করবে।
     """
+    # আগের কোনো ইমোজি থাকলে তা পরিষ্কার করে নেওয়া
+    clean_text = re.sub(r'^[🟢🔴🔵]\s*', '', text).strip()
+    
     prefix = ""
     if style == "success":
         prefix = "🟢 "
@@ -87,8 +90,6 @@ def make_inline_button(text, callback_data=None, url=None, style=None):
     elif style == "primary":
         prefix = "🔵 "
     
-    # ডুপ্লিকেট ইমোজি এড়াতে আগের ইমোজি থাকলে রিমুভ করে নতুন স্টাইল যুক্ত করা
-    clean_text = re.sub(r'^[🟢🔴🔵]\s*', '', text)
     final_text = f"{prefix}{clean_text}".strip()
     
     if url:
@@ -371,7 +372,7 @@ def start_cmd(message):
         return
 
     user = get_user(user_id, message.from_user.first_name, message.from_user.username or "")
-    update_user(user_id, "state", None) # স্টার্ট দিলে পুরনো স্টেট ক্লিয়ার হবে
+    update_user(user_id, "state", None)
 
     args = message.text.split()
     if len(args) > 1 and user.get("referred_by") is None:
@@ -448,7 +449,7 @@ def callback_handler(call):
             save_db(data)
 
         bot.answer_callback_query(call.id, f"🎉 আপনি ৳{b_amt} ডেইলি বোনাস ক্লেইম করেছেন!", show_alert=True)
-        bot.send_message(call.message.chat.id, f"🎉 <b>দৈনিক বোনাস সফলভাবে অ্যাকাউন্টে যোগ করা হয়েছে: ৳{b_amt}</b>", parse_mode="HTML")
+        bot.send_message(message.chat.id, f"🎉 <b>দৈনিক বোনাস সফলভাবে অ্যাকাউন্টে যোগ করা হয়েছে: ৳{b_amt}</b>", parse_mode="HTML")
 
     elif call.data.startswith("withdraw_method_"):
         method = call.data.replace("withdraw_method_", "").upper()
@@ -658,14 +659,15 @@ def handle_text_messages(message):
         return
 
     user = get_user(user_id, message.from_user.first_name, message.from_user.username or "")
-    state = user.get("state")
     txt = message.text.strip() if message.text else ""
 
     # মেইন মেনুর যেকোনো বাটন প্রেস করলে আগের আটকে থাকা state স্বয়ংক্রিয়ভাবে ক্লিয়ার হয়ে যাবে
     main_menu_buttons = [TXT_WALLET, TXT_REFER, TXT_DAILY_BONUS, TXT_CAPTCHA_SOLVE, TXT_WITHDRAW, TXT_SETTINGS, TXT_ADMIN]
     if txt in main_menu_buttons:
         update_user(user_id, "state", None)
-        state = None
+        user = get_user(user_id) # রিফ্রেশ ইউজার স্টেট
+
+    state = user.get("state")
 
     # Real-time Force Join Check
     left = check_force_join(user_id)
@@ -918,7 +920,7 @@ def handle_text_messages(message):
                     save_db(data)
                 bot.send_message(message.chat.id, f"✅ Daily Bonus set to ৳{v}")
             except:
-                bot.send_message(message.chat.id, "❌ সংখ্যা লিখুন።")
+                bot.send_message(message.chat.id, "❌ সংখ্যা লিখুন।")
             update_user(user_id, "state", None)
             return
 
@@ -1004,7 +1006,7 @@ def handle_text_messages(message):
         markup.add(
             make_inline_button("📱 বিকাশ (Bkash)", callback_data="withdraw_method_bkash", style="success"),
             make_inline_button("📱 নগদ (Nagad)", callback_data="withdraw_method_nagad", style="primary"),
-            make_inline_button("📱 রকেট (Rocket)", callback_data="withdraw_method_primary", style="primary"), # Primary style
+            make_inline_button("📱 রকেট (Rocket)", callback_data="withdraw_method_rocket", style="primary"),
             make_inline_button("💳 USDT", callback_data="withdraw_method_usdt", style="success")
         )
         bot.send_message(message.chat.id, msg, parse_mode="HTML", reply_markup=markup)
