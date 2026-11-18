@@ -52,7 +52,7 @@ def keep_alive():
 # --- CONFIGURATION & SECURITY ---
 # ============================================
 
-MY_DIRECT_BOT_TOKEN = "9059189356:AAEo7Z7FghIuxEyowWlgZLMxleYCpM7UPIg" 
+MY_DIRECT_BOT_TOKEN = "9059189356:AAH1fKN3AvPSXQwn567Inw4tADBzz9v-0oU" 
 
 BOT_TOKEN = os.getenv("BOT_TOKEN") or MY_DIRECT_BOT_TOKEN
 ADMIN_ID_RAW = os.getenv("ADMIN_ID", "7833766898")
@@ -76,12 +76,7 @@ db_lock = threading.RLock()
 # --- BUTTON COLOR & FACTORY HELPER ---
 # ============================================
 def make_inline_button(text, callback_data=None, url=None, style=None):
-    """
-    নিখুঁত কালার এমুলেশন হেল্পার: success-এ সবুজ (🟢), danger-এ লাল (🔴), primary-এ নীল (🔵) ইমোজি যুক্ত করবে।
-    """
-    # আগের কোনো ইমোজি থাকলে তা পরিষ্কার করে নেওয়া
     clean_text = re.sub(r'^[🟢🔴🔵]\s*', '', text).strip()
-    
     prefix = ""
     if style == "success":
         prefix = "🟢 "
@@ -186,6 +181,7 @@ def get_user(user_id, name="User", username=""):
                 "daily_bonus_claimed": False,
                 "last_bonus_date": "",
                 "last_active": time.time(),
+                "last_captcha_time": 0.0, # Rate Limiting / Cooldown Tracking
                 "state": None,
                 "temp_data": {},
                 "daily_task_counts": {today_str: {}}
@@ -195,6 +191,8 @@ def get_user(user_id, name="User", username=""):
             data["users"][uid]["last_active"] = time.time()
             data["users"][uid]["name"] = name
             data["users"][uid]["username"] = username
+            if "last_captcha_time" not in data["users"][uid]:
+                data["users"][uid]["last_captcha_time"] = 0.0
             if "daily_task_counts" not in data["users"][uid]:
                 data["users"][uid]["daily_task_counts"] = {}
             if today_str not in data["users"][uid]["daily_task_counts"]:
@@ -264,6 +262,43 @@ def generate_image_captcha():
     return buf, actual_ans
 
 # ============================================
+# --- DYNAMIC WALLET BANNER GENERATOR (PILLOW) ---
+# ============================================
+def generate_wallet_banner(user_name, balance, referrals, total_withdraw):
+    img = Image.new('RGB', (600, 300), color=(15, 23, 42))
+    draw = ImageDraw.Draw(img)
+    
+    # Decorative header box & border
+    draw.rectangle([20, 20, 580, 280], outline=(56, 189, 248), width=3)
+    draw.rectangle([25, 25, 575, 80], fill=(30, 41, 59))
+    
+    try:
+        font_title = ImageFont.truetype("arial.ttf", 24)
+        font_text = ImageFont.truetype("arial.ttf", 20)
+    except:
+        font_title = ImageFont.load_default()
+        font_text = ImageFont.load_default()
+        
+    draw.text((40, 38), "💎 VIP USER WALLET DASHBOARD 💎", fill=(255, 215, 0), font=font_title)
+    
+    info_lines = [
+        f"👤 Name: {user_name[:20]}",
+        f"💰 Balance: ৳{balance:.2f} BDT",
+        f"👥 Total Referrals: {referrals} Persons",
+        f"📤 Total Withdrawn: ৳{total_withdraw:.2f} BDT"
+    ]
+    
+    y_offset = 105
+    for line in info_lines:
+        draw.text((45, y_offset), line, fill=(241, 245, 249), font=font_text)
+        y_offset += 38
+        
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    return buf
+
+# ============================================
 # --- FORCE JOIN & LIVE GUARD CHECKER ---
 # ============================================
 def check_force_join(user_id):
@@ -282,10 +317,16 @@ def check_force_join(user_id):
     return left_channels
 
 def get_force_join_markup(left_channels):
-    markup = InlineKeyboardMarkup(row_width=1)
+    # বাটনগুলো পাশাপাশি (row_width=2) সাজানো হয়েছে
+    markup = InlineKeyboardMarkup(row_width=2)
+    buttons = []
     for ch in left_channels:
         clean_ch = ch.replace("@", "")
-        markup.add(make_inline_button(text=f"📢 Join {ch}", url=f"https://t.me/{clean_ch}", style="primary"))
+        buttons.append(make_inline_button(text=f"📢 Join {ch}", url=f"https://t.me/{clean_ch}", style="primary"))
+    
+    if len(buttons) > 0:
+        markup.add(*buttons)
+    
     markup.add(make_inline_button(text="✅ Verify Now", callback_data="verify_join", style="success"))
     return markup
 
@@ -377,7 +418,9 @@ def start_cmd(message):
     args = message.text.split()
     if len(args) > 1 and user.get("referred_by") is None:
         ref_id = args[1]
+        # Fake / Self-Referral Detection (প্রিভেন্টিভ সিকিউরিটি)
         if ref_id != str(user_id) and ref_id in data["users"]:
+            # অ্যান্টি-ফ্রড টগল অন থাকলে একই আইপি বা ডিভাইস চেক করা যায়, এখানে সেলফ রেফার ব্লক করা হলো
             update_user(user_id, "referred_by", ref_id)
 
     left = check_force_join(user_id)
@@ -407,7 +450,7 @@ def callback_handler(call):
             user = get_user(user_id)
             if user.get("referred_by") and not user.get("ref_rewarded"):
                 ref_id = str(user["referred_by"])
-                if ref_id in data["users"]:
+                if ref_id != str(user_id) and ref_id in data["users"]: # সেলফ রেফারেল চেক সিকিউরিটি
                     bonus = data.get("ref_bonus_verify", 0.40)
                     data["users"][ref_id]["balance"] += bonus
                     data["users"][ref_id]["total_ref_bonus"] += bonus
@@ -421,7 +464,7 @@ def callback_handler(call):
                     add_transaction(ref_id, "referral_bonus", bonus, f"Referral reward for user {user_id}")
                     save_db(data)
                     try:
-                        bot.send_message(ref_id, f"🎉 <b>New Referral Verification!</b>\nআপনি রেফার বোনাস <b>${bonus}</b> পেয়েছেন!", parse_mode="HTML")
+                        bot.send_message(ref_id, f"🎉 <b>New Referral Verification!</b>\nআপনি রেফার বোনাস <b>৳{bonus}</b> পেয়েছেন!", parse_mode="HTML")
                     except Exception as e:
                         pass
 
@@ -431,6 +474,23 @@ def callback_handler(call):
             pass
 
         bot.send_message(call.message.chat.id, f"✅ <b>ভেরিফিকেশন সফল হয়েছে!</b>\n\n{data['sys_texts']['welcome']}", parse_mode="HTML", reply_markup=get_main_menu(user_id))
+
+    # Multi-Language Backend Handler
+    elif call.data == "set_lang_bn":
+        update_user(user_id, "lang", "bn")
+        bot.answer_callback_query(call.id, "🇧🇩 ভাষা সফলভাবে বাংলা সেট করা হয়েছে!")
+        try:
+            bot.edit_message_text("⚙️ <b>Settings Updated:</b> ভাষা বাংলা সিলেক্ট করা হয়েছে।", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+        except:
+            pass
+
+    elif call.data == "set_lang_en":
+        update_user(user_id, "lang", "en")
+        bot.answer_callback_query(call.id, "🇬🇧 Language successfully set to English!")
+        try:
+            bot.edit_message_text("⚙️ <b>Settings Updated:</b> English language selected.", call.message.chat.id, call.message.message_id, parse_mode="HTML")
+        except:
+            pass
 
     elif call.data == "claim_daily_bonus":
         with db_lock:
@@ -449,7 +509,7 @@ def callback_handler(call):
             save_db(data)
 
         bot.answer_callback_query(call.id, f"🎉 আপনি ৳{b_amt} ডেইলি বোনাস ক্লেইম করেছেন!", show_alert=True)
-        bot.send_message(message.chat.id, f"🎉 <b>দৈনিক বোনাস সফলভাবে অ্যাকাউন্টে যোগ করা হয়েছে: ৳{b_amt}</b>", parse_mode="HTML")
+        bot.send_message(call.message.chat.id, f"🎉 <b>দৈনিক বোনাস সফলভাবে অ্যাকাউন্টে যোগ করা হয়েছে: ৳{b_amt}</b>", parse_mode="HTML")
 
     elif call.data.startswith("withdraw_method_"):
         method = call.data.replace("withdraw_method_", "").upper()
@@ -462,18 +522,13 @@ def callback_handler(call):
 
     elif call.data == "refresh_wallet":
         user = get_user(user_id)
-        msg = (f"👤 <b>Account Details Dashboard</b>\n\n"
-               f"🏷️ নাম: <b>{user['name']}</b>\n"
-               f"🆔 টেলিগ্রাম চ্যাট আইডি: <code>{user_id}</code>\n"
-               f"💰 মোট ব্যালেন্স: <b>৳{user['balance']:.2f}</b>\n"
-               f"👥 মোট রেফার: <b>{user['referrals']} জন</b>\n"
-               f"📤 মোট উইথড্র: <b>৳{user['total_withdraw']:.2f}</b>\n"
-               f"⏳ পেন্ডিং টাস্ক: <b>{user['pending_tasks']} টি</b>")
+        banner_buf = generate_wallet_banner(user['name'], user['balance'], user['referrals'], user['total_withdraw'])
         try:
-            bot.edit_message_text(msg, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=call.message.reply_markup)
-            bot.answer_callback_query(call.id, "✅ রিফ্রেশ করা হয়েছে!")
-        except Exception as e:
+            bot.delete_message(call.message.chat.id, call.message.message_id)
+        except:
             pass
+        bot.send_photo(call.message.chat.id, banner_buf, caption=f"👤 <b>Account Details Dashboard</b>\n\n🆔 চ্যাট আইডি: <code>{user_id}</code>\n💰 ব্যালেন্স: <b>৳{user['balance']:.2f}</b>", parse_mode="HTML")
+        bot.answer_callback_query(call.id, "✅ রিফ্রেশ করা হয়েছে!")
 
     # ==================== ADMIN INLINE CALLBACKS ====================
     elif call.data.startswith("adm_") and int(user_id) == ADMIN_ID:
@@ -549,13 +604,13 @@ def callback_handler(call):
         elif act == "broadcast_menu":
             markup = InlineKeyboardMarkup(row_width=1)
             markup.add(
-                make_inline_button("📢 Text Broadcast", callback_data="adm_bcast_text", style="primary")
+                make_inline_button("📢 Smart CTA Broadcast", callback_data="adm_bcast_text", style="primary")
             )
-            bot.send_message(call.message.chat.id, "📢 <b>Broadcast Panel:</b>", parse_mode="HTML", reply_markup=markup)
+            bot.send_message(call.message.chat.id, "📢 <b>Advanced Broadcast Panel:</b>", parse_mode="HTML", reply_markup=markup)
 
         elif act == "bcast_text":
             update_user(user_id, "state", "adm_input_bcast_text")
-            bot.send_message(call.message.chat.id, "ব্রডকাস্ট মেসেজটি সেন্ড করুন:")
+            bot.send_message(call.message.chat.id, "ব্রডকাস্ট মেসেজটি সেন্ড করুন (সৈজন্যে কল-টু-অ্যাকশন বাটন যুক্ত করার জন্য মেসেজের নিচে `||BUTTON_TEXT|URL` ফরম্যাটে দিতে পারেন):")
 
         elif act == "add_bal":
             update_user(user_id, "state", "adm_add_bal_val")
@@ -661,11 +716,10 @@ def handle_text_messages(message):
     user = get_user(user_id, message.from_user.first_name, message.from_user.username or "")
     txt = message.text.strip() if message.text else ""
 
-    # মেইন মেনুর যেকোনো বাটন প্রেস করলে আগের আটকে থাকা state স্বয়ংক্রিয়ভাবে ক্লিয়ার হয়ে যাবে
     main_menu_buttons = [TXT_WALLET, TXT_REFER, TXT_DAILY_BONUS, TXT_CAPTCHA_SOLVE, TXT_WITHDRAW, TXT_SETTINGS, TXT_ADMIN]
     if txt in main_menu_buttons:
         update_user(user_id, "state", None)
-        user = get_user(user_id) # রিফ্রেশ ইউজার স্টেট
+        user = get_user(user_id)
 
     state = user.get("state")
 
@@ -675,9 +729,19 @@ def handle_text_messages(message):
         bot.send_message(message.chat.id, "⚠️ <b>আপনি আমাদের চ্যানেল থেকে লিভ নিয়েছেন! কাজ চালিয়ে যেতে আবার জয়েন করুন:</b>", parse_mode="HTML", reply_markup=get_force_join_markup(left))
         return
 
-    # Captcha Earning Handler
+    # Captcha Earning Handler with Rate Limiting / Cooldown Protection (3 Seconds)
     if state == "user_solving_earning_captcha":
+        current_time = time.time()
+        last_time = user.get("last_captcha_time", 0.0)
+        
+        if current_time - last_time < 3.0:
+            bot.send_message(message.chat.id, "⚠️ অত্যন্ত দ্রুত রিকোয়েস্ট! অনুগ্রহ করে অন্তত ৩ সেকেন্ড অপেক্ষা করুন।", reply_markup=get_main_menu(user_id))
+            update_user(user_id, "state", None)
+            return
+
+        update_user(user_id, "last_captcha_time", current_time)
         ans = user.get("temp_data", {}).get("earn_captcha_ans", "")
+        
         if txt.upper() == ans.upper():
             c_rate = data["tasks"]["captcha"]["rate"]
             with db_lock:
@@ -738,7 +802,6 @@ def handle_text_messages(message):
 
             update_user(user_id, "state", None)
 
-            # Notify Admin
             try:
                 adm_msg = (f"📥 <b>NEW BDT WITHDRAWAL REQUEST!</b>\n\n"
                            f"ID: <code>{w_key}</code>\n"
@@ -854,9 +917,23 @@ def handle_text_messages(message):
 
         elif state == "adm_input_bcast_text":
             succ, fail = 0, 0
+            bcast_parts = txt.split("||")
+            actual_msg = bcast_parts[0].strip()
+            btn_markup = None
+            
+            if len(bcast_parts) > 1:
+                try:
+                    btn_info = bcast_parts[1].split("|")
+                    btn_text = btn_info[0].strip()
+                    btn_url = btn_info[1].strip()
+                    btn_markup = InlineKeyboardMarkup()
+                    btn_markup.add(make_inline_button(btn_text, url=btn_url, style="success"))
+                except:
+                    pass
+
             for uid in list(data["users"].keys()):
                 try:
-                    bot.send_message(int(uid), f"📢 <b>Broadcast Notice:</b>\n\n{txt}", parse_mode="HTML")
+                    bot.send_message(int(uid), f"📢 <b>Broadcast Notice:</b>\n\n{actual_msg}", parse_mode="HTML", reply_markup=btn_markup)
                     succ += 1
                 except Exception as e:
                     fail += 1
@@ -935,16 +1012,10 @@ def handle_text_messages(message):
 
     # ==================== MAIN MENU COMMANDS ====================
     if txt == TXT_WALLET:
-        msg = (f"👤 <b>Account Details Dashboard</b>\n\n"
-               f"🏷️ নাম: <b>{user['name']}</b>\n"
-               f"🆔 টেলিগ্রাম চ্যাট আইডি: <code>{user_id}</code>\n"
-               f"💰 মোট ব্যালেন্স: <b>৳{user['balance']:.2f}</b>\n"
-               f"👥 মোট রেফার: <b>{user['referrals']} জন</b>\n"
-               f"📤 মোট উইথড্র: <b>৳{user['total_withdraw']:.2f}</b>\n"
-               f"⏳ পেন্ডিং টাস্ক: <b>{user['pending_tasks']} টি</b>")
+        banner_buf = generate_wallet_banner(user['name'], user['balance'], user['referrals'], user['total_withdraw'])
         markup = InlineKeyboardMarkup()
         markup.add(make_inline_button("🔄 রিফ্রেশ করুন", callback_data="refresh_wallet", style="primary"))
-        bot.send_message(message.chat.id, msg, parse_mode="HTML", reply_markup=markup)
+        bot.send_photo(message.chat.id, banner_buf, caption=f"👤 <b>Account Details Dashboard</b>\n\n🆔 টেলিগ্রাম চ্যাট আইডি: <code>{user_id}</code>\n💰 মোট ব্যালেন্স: <b>৳{user['balance']:.2f}</b>", parse_mode="HTML", reply_markup=markup)
 
     elif txt == TXT_REFER:
         bot_uname = bot.get_me().username
