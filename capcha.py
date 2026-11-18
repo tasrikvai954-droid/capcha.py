@@ -37,7 +37,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "📧 Earning Captcha & BDT Bot Engine is Running 24/7!"
+    return "🤖 Earning Captcha & BDT Bot Engine is Running 24/7!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 8080))
@@ -52,7 +52,7 @@ def keep_alive():
 # --- CONFIGURATION & SECURITY ---
 # ============================================
 
-MY_DIRECT_BOT_TOKEN = "9059189356:AAE9yw0vGVAgThlasP97rWeHA2nuZ9yVejU" 
+MY_DIRECT_BOT_TOKEN = "9059189356:AAFj_I5TaWTFuffu6FouFCpg1Svcmooh6mo" 
 
 BOT_TOKEN = os.getenv("BOT_TOKEN") or MY_DIRECT_BOT_TOKEN
 ADMIN_ID_RAW = os.getenv("ADMIN_ID", "7833766898")
@@ -76,15 +76,20 @@ db_lock = threading.RLock()
 # --- BUTTON COLOR & FACTORY HELPER ---
 # ============================================
 def make_inline_button(text, callback_data=None, url=None, style=None):
+    """
+    Centralized InlineKeyboardButton Builder with strict color emulation.
+    """
     prefix = ""
-    if style == "success" and not any(icon in text for icon in ["✅", "🟢", "➕"]):
+    if style == "success":
         prefix = "🟢 "
-    elif style == "danger" and not any(icon in text for icon in ["❌", "🔴", "🗑️"]):
+    elif style == "danger":
         prefix = "🔴 "
-    elif style == "primary" and not any(icon in text for icon in ["⚙️", "📊", "🔄", "📢", "💳"]):
+    elif style == "primary":
         prefix = "🔵 "
     
-    final_text = f"{prefix}{text}".strip()
+    # ডুপ্লিকেট ইমোজি এড়াতে আগের ইমোজি থাকলে রিমুভ করে নতুন স্টাইল যুক্ত করা
+    clean_text = re.sub(r'^[🟢🔴🔵]\s*', '', text)
+    final_text = f"{prefix}{clean_text}".strip()
     
     if url:
         return InlineKeyboardButton(text=final_text, url=url)
@@ -225,44 +230,21 @@ def add_transaction(user_id, tx_type, amount, desc):
 # --- IMAGE & MATH CAPTCHA GENERATOR ---
 # ============================================
 def generate_image_captcha():
-    # র্যান্ডমলি টেক্সট অথবা ম্যাথ প্রবলেম তৈরি করা
     choice_type = random.choice(["text", "math"])
     if choice_type == "text":
         code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=5))
+        actual_ans = code
     else:
         n1 = random.randint(1, 20)
         n2 = random.randint(1, 20)
         op = random.choice(["+", "-"])
         if op == "+":
-            code = str(n1 + n2)
+            actual_ans = str(n1 + n2)
         else:
             if n1 < n2:
                 n1, n2 = n2, n1
-            code = str(n1 - n2)
+            actual_ans = str(n1 - n2)
         code = f"{n1}{op}{n2}"
-        # প্রকৃত সমাধান বের করা
-        if "+" in code:
-            parts = code.split("+")
-            actual_ans = str(int(parts[0]) + int(parts[1]))
-        else:
-            parts = code.split("-")
-            actual_ans = str(int(parts[0]) - int(parts[1]))
-        
-        img = Image.new('RGB', (180, 70), color=(30, 39, 46))
-        draw = ImageDraw.Draw(img)
-        for _ in range(6):
-            x1, y1 = random.randint(0, 180), random.randint(0, 70)
-            x2, y2 = random.randint(0, 180), random.randint(0, 70)
-            draw.line([(x1, y1), (x2, y2)], fill=(120, 120, 120), width=1)
-        try:
-            font = ImageFont.truetype("arial.ttf", 28)
-        except:
-            font = ImageFont.load_default()
-        draw.text((20, 18), code, fill=(255, 234, 167), font=font)
-        buf = io.BytesIO()
-        img.save(buf, format='PNG')
-        buf.seek(0)
-        return buf, actual_ans
 
     img = Image.new('RGB', (180, 70), color=(30, 39, 46))
     draw = ImageDraw.Draw(img)
@@ -278,7 +260,7 @@ def generate_image_captcha():
     buf = io.BytesIO()
     img.save(buf, format='PNG')
     buf.seek(0)
-    return buf, code
+    return buf, actual_ans
 
 # ============================================
 # --- FORCE JOIN & LIVE GUARD CHECKER ---
@@ -389,6 +371,7 @@ def start_cmd(message):
         return
 
     user = get_user(user_id, message.from_user.first_name, message.from_user.username or "")
+    update_user(user_id, "state", None) # স্টার্ট দিলে পুরনো স্টেট ক্লিয়ার হবে
 
     args = message.text.split()
     if len(args) > 1 and user.get("referred_by") is None:
@@ -396,7 +379,6 @@ def start_cmd(message):
         if ref_id != str(user_id) and ref_id in data["users"]:
             update_user(user_id, "referred_by", ref_id)
 
-    # Force join check on start
     left = check_force_join(user_id)
     if left:
         msg = f"👋 <b>Welcome to {BOT_NAME}!</b>\n\nবটটি ব্যবহার করতে নিচের চ্যানেলগুলোতে জয়েন করুন এবং <b>Verify Now</b> বাটনে ক্লিক করুন:"
@@ -491,16 +473,6 @@ def callback_handler(call):
             bot.answer_callback_query(call.id, "✅ রিফ্রেশ করা হয়েছে!")
         except Exception as e:
             pass
-
-    elif call.data == "set_lang_bn":
-        update_user(user_id, "lang", "bn")
-        bot.answer_callback_query(call.id, "ভাষা বাংলা সেট করা হয়েছে!")
-        bot.send_message(call.message.chat.id, "✅ ভাষা পরিবর্তিত হয়েছে!", reply_markup=get_main_menu(user_id))
-
-    elif call.data == "set_lang_en":
-        update_user(user_id, "lang", "en")
-        bot.answer_callback_query(call.id, "Language set to English!")
-        bot.send_message(call.message.chat.id, "✅ Language Changed!", reply_markup=get_main_menu(user_id))
 
     # ==================== ADMIN INLINE CALLBACKS ====================
     elif call.data.startswith("adm_") and int(user_id) == ADMIN_ID:
@@ -687,14 +659,19 @@ def handle_text_messages(message):
 
     user = get_user(user_id, message.from_user.first_name, message.from_user.username or "")
     state = user.get("state")
+    txt = message.text.strip() if message.text else ""
+
+    # মেইন মেনুর যেকোনো বাটন প্রেস করলে আগের আটকে থাকা state স্বয়ংক্রিয়ভাবে ক্লিয়ার হয়ে যাবে
+    main_menu_buttons = [TXT_WALLET, TXT_REFER, TXT_DAILY_BONUS, TXT_CAPTCHA_SOLVE, TXT_WITHDRAW, TXT_SETTINGS, TXT_ADMIN]
+    if txt in main_menu_buttons:
+        update_user(user_id, "state", None)
+        state = None
 
     # Real-time Force Join Check
     left = check_force_join(user_id)
     if left and int(user_id) != ADMIN_ID:
         bot.send_message(message.chat.id, "⚠️ <b>আপনি আমাদের চ্যানেল থেকে লিভ নিয়েছেন! কাজ চালিয়ে যেতে আবার জয়েন করুন:</b>", parse_mode="HTML", reply_markup=get_force_join_markup(left))
         return
-
-    txt = message.text.strip() if message.text else ""
 
     # Captcha Earning Handler
     if state == "user_solving_earning_captcha":
@@ -941,7 +918,7 @@ def handle_text_messages(message):
                     save_db(data)
                 bot.send_message(message.chat.id, f"✅ Daily Bonus set to ৳{v}")
             except:
-                bot.send_message(message.chat.id, "❌ সংখ্যা লিখুন।")
+                bot.send_message(message.chat.id, "❌ সংখ্যা লিখুন።")
             update_user(user_id, "state", None)
             return
 
@@ -1012,7 +989,6 @@ def handle_text_messages(message):
         min_w = data.get('min_withdraw', 50.0)
         bal = user['balance']
         
-        # প্রোগ্রেস বার তৈরি
         progress_percent = min(100.0, (bal / min_w) * 100)
         filled_blocks = int(progress_percent // 10)
         empty_blocks = 10 - filled_blocks
@@ -1028,7 +1004,7 @@ def handle_text_messages(message):
         markup.add(
             make_inline_button("📱 বিকাশ (Bkash)", callback_data="withdraw_method_bkash", style="success"),
             make_inline_button("📱 নগদ (Nagad)", callback_data="withdraw_method_nagad", style="primary"),
-            make_inline_button("📱 রকেট (Rocket)", callback_data="withdraw_method_rocket", style="primary"),
+            make_inline_button("📱 রকেট (Rocket)", callback_data="withdraw_method_primary", style="primary"), # Primary style
             make_inline_button("💳 USDT", callback_data="withdraw_method_usdt", style="success")
         )
         bot.send_message(message.chat.id, msg, parse_mode="HTML", reply_markup=markup)
