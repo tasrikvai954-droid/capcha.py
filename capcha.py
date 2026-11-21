@@ -52,7 +52,7 @@ def keep_alive():
 # --- CONFIGURATION & SECURITY ---
 # ============================================
 
-MY_DIRECT_BOT_TOKEN = "9059189356:AAH1fKN3AvPSXQwn567Inw4tADBzz9v-0oU" 
+MY_DIRECT_BOT_TOKEN = "9296738675:AAG1ywjPCIYsKIGn1TMH3WFhuEbrjDiItB8" 
 
 BOT_TOKEN = os.getenv("BOT_TOKEN") or MY_DIRECT_BOT_TOKEN
 ADMIN_ID_RAW = os.getenv("ADMIN_ID", "7833766898")
